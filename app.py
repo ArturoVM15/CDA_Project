@@ -460,6 +460,10 @@ elif seccion == "📉 Tendencias":
               ("Emisiones de CO₂ (t)", COL_CO2, "#5d3a9b"),
               ("Consumo fósil (TWh)", COL_FOS, "#2a6f7f")]
 
+    ver_svr = st.checkbox("Mostrar también ajuste SVR",
+                          help="El SVR (kernel RBF) sigue la curva de forma más "
+                               "flexible, pero no extrapola bien fuera del rango.")
+
     if modo == "🌍 Global":
         gg = df.groupby("Anio").agg(**{COL_TMP: (COL_TMP, "mean"),
                                        COL_CO2: (COL_CO2, "sum"),
@@ -482,10 +486,18 @@ elif seccion == "📉 Tendencias":
                                  line=dict(color=color), name="Observado",
                                  marker=dict(size=4)))
         fig.add_trace(go.Scatter(x=d["Anio"], y=tend, mode="lines",
-                                 line=dict(color="black", dash="dash"), name="Tendencia"))
+                                 line=dict(color="black", dash="dash"),
+                                 name="Tendencia lineal"))
+        if ver_svr:
+            svr = make_pipeline(StandardScaler(),
+                                SVR(kernel="rbf", C=10, gamma="scale")).fit(d[["Anio"]], d[col])
+            fig.add_trace(go.Scatter(x=d["Anio"], y=svr.predict(d[["Anio"]]),
+                                     mode="lines", line=dict(color="#2e8b57", dash="dot",
+                                                             width=3), name="Ajuste SVR"))
         signo = "↑" if m.coef_[0] > 0 else "↓"
         fig.update_layout(title=f"{nombre} {signo}", height=380,
-                          showlegend=False, xaxis_title="", yaxis_title="")
+                          showlegend=ver_svr, xaxis_title="", yaxis_title="",
+                          legend=dict(orientation="h", y=-0.2))
         cc.plotly_chart(fig, use_container_width=True)
 
     st.caption(f"Línea negra punteada = tendencia lineal {titulo_extra}. "
