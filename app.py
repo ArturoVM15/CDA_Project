@@ -506,43 +506,59 @@ elif seccion == "📊 Matriz predictiva":
 # 6. COMPARACIÓN DE MODELOS (Lineal vs SVR)
 # ======================================================================
 elif seccion == "🏆 Comparación de modelos":
-    st.title("🏆 Selección del modelo: Lineal vs SVR")
-    st.markdown("Comparamos **Regresión Lineal** y **SVR** para predecir la temperatura "
-                "por país, con validación temporal: entrenamiento 1980–2018, "
-                "prueba 2019–2024. Menor RMSE = mejor.")
+    st.title("🏆 Selección del mejor modelo")
+    st.markdown("Comparamos **4 modelos** para predecir la temperatura por país, con "
+                "validación temporal común: entrenamiento **1980–2018**, prueba "
+                "**2019–2024**. Se agregan las predicciones de todos los países.")
 
-    from sklearn.svm import SVR  # noqa: F811 (ya importado arriba)
-    filas = []
+    from sklearn.svm import SVR  # noqa: F811
+    from sklearn.metrics import mean_absolute_error
+    modelos = ["Regresión lineal", "SVR ajustado", "Media móvil (10 años)", "Naive"]
+    preds = {m: [] for m in modelos}
+    y_real = []
     for pais, d in df[df["Anio"].between(1980, 2024)].groupby("Pais"):
         d = d.sort_values("Anio")
         tr, te = d[d["Anio"] <= 2018], d[d["Anio"] > 2018]
-        if len(te) < 2:
+        if len(te) < 2 or len(tr) < 10:
             continue
+        y_real += list(te[COL_TMP])
         lin = LinearRegression().fit(tr[["Anio"]], tr[COL_TMP])
+        preds["Regresión lineal"] += list(lin.predict(te[["Anio"]]))
         svr = make_pipeline(StandardScaler(),
                             SVR(kernel="rbf", C=10, gamma="scale")).fit(tr[["Anio"]], tr[COL_TMP])
-        rmse = lambda m: np.sqrt(np.mean((te[COL_TMP] - m.predict(te[["Anio"]]))**2))
-        filas.append({"Pais": pais, "RMSE Lineal": rmse(lin), "RMSE SVR": rmse(svr)})
-    comp = pd.DataFrame(filas)
+        preds["SVR ajustado"] += list(svr.predict(te[["Anio"]]))
+        preds["Media móvil (10 años)"] += [tr[COL_TMP].iloc[-10:].mean()] * len(te)
+        preds["Naive"] += [tr[COL_TMP].iloc[-1]] * len(te)
 
-    c1, c2, c3 = st.columns(3)
-    c1.metric("RMSE promedio · Lineal", f"{comp['RMSE Lineal'].mean():.3f} °C")
-    c2.metric("RMSE promedio · SVR", f"{comp['RMSE SVR'].mean():.3f} °C")
-    gana = (comp["RMSE Lineal"] < comp["RMSE SVR"]).sum()
-    c3.metric("Lineal gana en", f"{gana}/{len(comp)} países")
+    y_real = np.array(y_real)
+    met = []
+    for m in modelos:
+        p = np.array(preds[m])
+        met.append({"Modelo": m,
+                    "RMSE": np.sqrt(np.mean((y_real - p) ** 2)),
+                    "MAE": mean_absolute_error(y_real, p),
+                    "R2": r2_score(y_real, p)})
+    met = pd.DataFrame(met)
+    colores = {"Regresión lineal": "#3b3b6d", "SVR ajustado": "#2a6f7f",
+               "Media móvil (10 años)": "#2e8b57", "Naive": "#7cb342"}
 
-    comp_long = comp.melt(id_vars="Pais", var_name="Modelo", value_name="RMSE")
-    fig = px.bar(comp_long, x="Pais", y="RMSE", color="Modelo", barmode="group",
-                 color_discrete_map={"RMSE Lineal": "#2471a3", "RMSE SVR": "#c0392b"},
-                 labels={"RMSE": "RMSE en prueba (°C)"})
-    fig.update_layout(xaxis_tickangle=-30)
-    st.plotly_chart(fig, use_container_width=True)
+    st.subheader("Desempeño en datos no usados para el ajuste (2019–2024)")
+    cols = st.columns(3)
+    for cc, metrica in zip(cols, ["RMSE", "MAE", "R2"]):
+        fig = px.bar(met, x="Modelo", y=metrica, color="Modelo",
+                     color_discrete_map=colores, title=f"Comparación de {metrica}")
+        fig.update_layout(showlegend=False, xaxis_title="", xaxis_tickangle=-25,
+                          height=380)
+        cc.plotly_chart(fig, use_container_width=True)
 
-    st.success("La **Regresión Lineal** gana en la mayoría de los países y tiene menor "
-               "RMSE promedio. Además, el SVR con kernel RBF no extrapola bien fuera del "
-               "rango de años entrenado. Por eso el proyecto se queda con el modelo lineal.")
-    with st.expander("Ver tabla de RMSE por país"):
-        st.dataframe(comp.round(3), use_container_width=True, hide_index=True)
+    mejor = met.loc[met["RMSE"].idxmin(), "Modelo"]
+    rmse_mejor = met["RMSE"].min()
+    st.success(f"**Modelo elegido: {mejor}** — obtuvo el menor RMSE "
+               f"({rmse_mejor:.4f} °C) en el período de prueba. Captura la tendencia "
+               f"de calentamiento mejor que los baseline (naive y media móvil), y a "
+               f"diferencia del SVR extrapola de forma confiable más allá de 2024.")
+    with st.expander("Ver tabla de métricas"):
+        st.dataframe(met.round(4), use_container_width=True, hide_index=True)
 
 
 # ======================================================================
