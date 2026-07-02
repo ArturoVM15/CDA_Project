@@ -12,6 +12,7 @@ y la temperatura media global (10 países, 1970–2024).
 - **Matriz predictiva** — temperatura 2050 según niveles de CO₂ × consumo fósil (4×4).
 - **Proyección a 2050** — global (año → variable → temperatura) y por país, con backtest.
 - **Comparación de modelos** — Regresión Lineal vs SVR por país (justifica la elección).
+- **Exploración inicial (Kaggle)** — gráficos del dataset sintético usado en la fase de decisión.
 - **Conclusiones**.
 
 ## Ejecutar localmente
@@ -23,14 +24,15 @@ Abre en el navegador `http://localhost:8501`.
 
 ## Desplegar en Streamlit Community Cloud (gratis, desde GitHub)
 
-1. Crea un repositorio en GitHub y sube **estos tres archivos** juntos:
+1. Crea un repositorio en GitHub y sube **estos archivos** juntos:
    - `app.py`
    - `requirements.txt`
-   - `Base_de_Datos_Proyecto.csv`  ← imprescindible, el dashboard lo lee desde la misma carpeta.
+   - `Base_de_Datos_Proyecto.csv`  ← base real, imprescindible.
+   - `Kaggle_Climate_Dataset.csv`  ← dataset sintético (sección "Exploración inicial"; si falta, esa sección avisa pero el resto funciona).
 
    ```bash
    git init
-   git add app.py requirements.txt Base_de_Datos_Proyecto.csv README.md
+   git add app.py requirements.txt Base_de_Datos_Proyecto.csv Kaggle_Climate_Dataset.csv README.md
    git commit -m "Dashboard clima"
    git branch -M main
    git remote add origin https://github.com/TU_USUARIO/TU_REPO.git
