@@ -70,8 +70,19 @@ def correlaciones_por_pais(df):
     return pd.DataFrame(filas)
 
 
+@st.cache_data
+def cargar_kaggle(path="Kaggle_Climate_Dataset.csv"):
+    """Dataset sintético inicial (exploratorio). Devuelve None si no está."""
+    try:
+        k = pd.read_csv(path)
+        return k if len(k) and "predicted_temperature_2050" in k.columns else None
+    except Exception:
+        return None
+
+
 df = cargar_datos()
 g = serie_global(df)
+kaggle = cargar_kaggle()
 
 # Diccionario para trabajar CO2 / Fósil con la misma interfaz
 VARS = {
@@ -90,7 +101,7 @@ seccion = st.sidebar.radio(
     ["🏠 Inicio", "🔍 Exploración (EDA)", "🌡️ Relación global",
      "🗺️ Relación por país", "📊 Matriz predictiva",
      "📈 Proyección a 2050", "🏆 Comparación de modelos",
-     "📝 Conclusiones"]
+     "🧪 Exploración inicial (Kaggle)", "📝 Conclusiones"]
 )
 st.sidebar.markdown("---")
 st.sidebar.caption(f"Datos: {len(df)} registros · "
@@ -176,6 +187,29 @@ elif seccion == "🔍 Exploración (EDA)":
                       color_discrete_sequence=["#2e6b9a"])
         figb.update_layout(height=350, showlegend=False, yaxis_title="")
         ax_col.plotly_chart(figb, use_container_width=True)
+
+    colA, colB = st.columns(2)
+    with colA:
+        st.subheader("Matriz de correlación")
+        corr = d[[COL_CO2, COL_FOS, COL_TMP]].corr()
+        figc = px.imshow(corr, text_auto=".2f", color_continuous_scale="RdBu_r",
+                         zmin=-1, zmax=1, aspect="auto",
+                         x=["CO₂", "Fósil", "Temp"], y=["CO₂", "Fósil", "Temp"])
+        st.plotly_chart(figc, use_container_width=True)
+        st.caption("La correlación CO₂–temperatura sale *negativa* con la temperatura "
+                   "absoluta (los países fríos emiten mucho). Por eso el análisis usa "
+                   "la anomalía y el agregado global, donde sí es fuertemente positiva.")
+    with colB:
+        st.subheader("Completitud de datos (país × año)")
+        pres = (d.pivot_table(index="Pais", columns="Anio",
+                              values=COL_TMP, aggfunc="count")
+                .notna().astype(int))
+        figm = px.imshow(pres, color_continuous_scale=["white", "#2e6b9a"],
+                         aspect="auto", labels=dict(color="Dato"))
+        figm.update_coloraxes(showscale=False)
+        st.plotly_chart(figm, use_container_width=True)
+        st.caption("Azul = hay dato para ese país y año. Sirve para verificar que la "
+                   "base esté completa antes de modelar.")
 
 
 # ======================================================================
@@ -333,6 +367,34 @@ elif seccion == "📈 Proyección a 2050":
                        "una recta perfecta (se aplanaron tras ~2012). Presentar como "
                        "**escenario de tendencia lineal**, no como predicción dura.")
 
+        st.markdown("---")
+        if st.checkbox("Mostrar modelos baseline de temperatura (naive, media móvil, tendencia)"):
+            gt = df.groupby("Anio")[COL_TMP].mean()
+            m_tr = LinearRegression().fit(gt.index.values.reshape(-1, 1), gt.values)
+            fut_b = np.arange(int(gt.index.max()) + 1, 2051)
+            naive = gt.iloc[-1]
+            ma10 = gt.iloc[-10:].mean()
+            figb = go.Figure()
+            figb.add_trace(go.Scatter(x=gt.index, y=gt.values, mode="lines",
+                                      line=dict(color="black"), name="Histórico real"))
+            figb.add_trace(go.Scatter(x=fut_b, y=[naive]*len(fut_b), mode="lines",
+                                      line=dict(color="#c0392b", dash="dash"),
+                                      name=f"Naive ({naive:.2f} °C)"))
+            figb.add_trace(go.Scatter(x=fut_b, y=[ma10]*len(fut_b), mode="lines",
+                                      line=dict(color="#2e8b57", dash="dash"),
+                                      name=f"Media móvil 10y ({ma10:.2f} °C)"))
+            figb.add_trace(go.Scatter(x=fut_b, y=m_tr.predict(fut_b.reshape(-1, 1)),
+                                      mode="lines", line=dict(color="#2471a3", width=3),
+                                      name="Tendencia lineal"))
+            figb.add_vline(x=int(gt.index.max()), line_dash="dot", line_color="gray")
+            figb.update_layout(xaxis_title="Año", yaxis_title="Temperatura global (°C)",
+                               title="Modelos baseline vs tendencia",
+                               legend=dict(orientation="h", y=1.1))
+            st.plotly_chart(figb, use_container_width=True)
+            st.caption("Los baseline (naive y media móvil) son líneas planas: sirven "
+                       "como referencia mínima. La tendencia lineal es el modelo que "
+                       "captura el calentamiento.")
+
     # ---------------- Proyección POR PAÍS ----------------
     else:
         st.markdown("Proyección de cada variable a 2050 por país, con **regresión "
@@ -351,7 +413,12 @@ elif seccion == "📈 Proyección a 2050":
         fut = pd.DataFrame({"Anio": np.arange(int(d["Anio"].max()) + 1, 2051)})
         pred = modelo.predict(fut)
 
-        st.metric(f"{etiqueta} proyectada a 2050",
+        ver_svr = st.checkbox("Comparar con proyección SVR",
+                              help="El SVR (kernel RBF) no extrapola: tiende a "
+                                   "'aplanarse' o revertir a la media fuera del rango "
+                                   "de años entrenado. Por eso se eligió la lineal.")
+
+        st.metric(f"{etiqueta} proyectada a 2050 (Lineal)",
                   f"{modelo.predict(pd.DataFrame({'Anio':[2050]}))[0]:,.2f}")
 
         fig = go.Figure()
@@ -359,49 +426,80 @@ elif seccion == "📈 Proyección a 2050":
                                  line=dict(color="#2471a3"), name="Histórico"))
         fig.add_trace(go.Scatter(x=fut["Anio"], y=pred, mode="lines",
                                  line=dict(color="#c0392b", dash="dash"),
-                                 name="Proyección"))
+                                 name="Proyección Lineal"))
+        if ver_svr:
+            svr = make_pipeline(StandardScaler(),
+                                SVR(kernel="rbf", C=10, gamma="scale")).fit(d[["Anio"]], d[col])
+            pred_svr = svr.predict(fut)
+            fig.add_trace(go.Scatter(x=fut["Anio"], y=pred_svr, mode="lines",
+                                     line=dict(color="#2e8b57", dash="dot", width=3),
+                                     name="Proyección SVR"))
         fig.add_vline(x=int(d["Anio"].max()), line_dash="dot", line_color="gray")
         fig.update_layout(xaxis_title="Año", yaxis_title=etiqueta,
-                          title=f"{pais} · proyección lineal a 2050",
+                          title=f"{pais} · proyección a 2050",
                           legend=dict(orientation="h", y=1.1))
         st.plotly_chart(fig, use_container_width=True)
+
+        if ver_svr:
+            st.info("Fijate cómo la línea verde (SVR) se aplana o incluso baja al "
+                    "extrapolar — a veces predice enfriamiento. Ese es el motivo por "
+                    "el que el proyecto se quedó con la regresión lineal.")
 
 
 # ======================================================================
 # 5b. MATRIZ PREDICTIVA 4x4
 # ======================================================================
 elif seccion == "📊 Matriz predictiva":
-    st.title("📊 Matriz predictiva de temperatura a 2050")
-    st.markdown("Un modelo de relación predice la anomalía de temperatura para cada "
-                "combinación de **nivel de CO₂ × nivel de consumo fósil**, proyectada a 2050.")
+    st.title("📊 Matriz de CO₂ × consumo fósil")
 
-    # Modelo de relación: anomalía ~ CO2 + fósil + año
-    Xg = df[[COL_CO2, COL_FOS, "Anio"]]
-    modelo = LinearRegression().fit(Xg, df["anom"])
+    tipo = st.radio("Tipo de matriz",
+                    ["Predictiva (temperatura 2050)", "Descriptiva (conteo de años)"],
+                    horizontal=True)
 
     niveles_emi = ["Muy Bajo", "Bajo", "Alto", "Muy Alta"]
     niveles_con = ["Mínimo", "Moderado", "Alto", "Intenso"]
-    qs = [0.125, 0.375, 0.625, 0.875]
-    emi_c = df[COL_CO2].quantile(qs).values
-    con_c = df[COL_FOS].quantile(qs).values
 
-    M = np.zeros((4, 4))
-    for i, con in enumerate(con_c):
-        for j, emi in enumerate(emi_c):
-            M[i, j] = modelo.predict(pd.DataFrame(
-                {COL_CO2: [emi], COL_FOS: [con], "Anio": [2050]}))[0]
-
-    fig = px.imshow(M, x=niveles_emi, y=niveles_con, text_auto=".2f",
-                    color_continuous_scale="YlOrRd", aspect="auto",
-                    labels=dict(x="Nivel de Emisión de CO₂",
-                                y="Intensidad de Consumo Fósil",
-                                color="Anomalía 2050 (°C)"))
-    fig.update_layout(title="Temperatura proyectada a 2050 según escenarios")
-    st.plotly_chart(fig, use_container_width=True)
-
-    st.caption("Nota: como CO₂ y fósil están correlacionados al 0.99, algunas "
-               "combinaciones (ej. CO₂ muy alto + consumo mínimo) son escenarios "
-               "extrapolados que casi no ocurrieron en los datos.")
+    if tipo.startswith("Predictiva"):
+        st.markdown("Un modelo de relación predice la anomalía de temperatura para cada "
+                    "combinación de **nivel de CO₂ × nivel de consumo fósil**, proyectada a 2050.")
+        # Modelo de relación: anomalía ~ CO2 + fósil + año
+        Xg = df[[COL_CO2, COL_FOS, "Anio"]]
+        modelo = LinearRegression().fit(Xg, df["anom"])
+        qs = [0.125, 0.375, 0.625, 0.875]
+        emi_c = df[COL_CO2].quantile(qs).values
+        con_c = df[COL_FOS].quantile(qs).values
+        M = np.zeros((4, 4))
+        for i, con in enumerate(con_c):
+            for j, emi in enumerate(emi_c):
+                M[i, j] = modelo.predict(pd.DataFrame(
+                    {COL_CO2: [emi], COL_FOS: [con], "Anio": [2050]}))[0]
+        fig = px.imshow(M, x=niveles_emi, y=niveles_con, text_auto=".2f",
+                        color_continuous_scale="YlOrRd", aspect="auto",
+                        labels=dict(x="Nivel de Emisión de CO₂",
+                                    y="Intensidad de Consumo Fósil",
+                                    color="Anomalía 2050 (°C)"))
+        fig.update_layout(title="Temperatura proyectada a 2050 según escenarios")
+        st.plotly_chart(fig, use_container_width=True)
+        st.caption("Nota: como CO₂ y fósil están correlacionados al 0.99, algunas "
+                   "combinaciones (ej. CO₂ muy alto + consumo mínimo) son escenarios "
+                   "extrapolados que casi no ocurrieron en los datos.")
+    else:
+        st.markdown("Cuántos registros (país-año) caen en cada combinación de niveles. "
+                    "Muestra que ambas variables se mueven juntas (los datos se "
+                    "concentran en la diagonal).")
+        re_ = pd.qcut(df[COL_CO2], 4, labels=niveles_emi)
+        rc_ = pd.qcut(df[COL_FOS], 4, labels=niveles_con)
+        mc = (pd.crosstab(rc_, re_)
+              .reindex(index=niveles_con, columns=niveles_emi, fill_value=0))
+        fig = px.imshow(mc.values, x=niveles_emi, y=niveles_con, text_auto="d",
+                        color_continuous_scale="Blues", aspect="auto",
+                        labels=dict(x="Nivel de Emisión de CO₂",
+                                    y="Intensidad de Consumo Fósil",
+                                    color="N° de años"))
+        fig.update_layout(title="Conteo de años por combinación de niveles")
+        st.plotly_chart(fig, use_container_width=True)
+        st.caption("La concentración en la diagonal confirma la colinealidad (0.99) "
+                   "entre emisiones de CO₂ y consumo de combustibles fósiles.")
 
 
 # ======================================================================
@@ -448,7 +546,110 @@ elif seccion == "🏆 Comparación de modelos":
 
 
 # ======================================================================
-# 7. CONCLUSIONES
+# 7. EXPLORACIÓN INICIAL (KAGGLE)
+# ======================================================================
+elif seccion == "🧪 Exploración inicial (Kaggle)":
+    st.title("🧪 Exploración inicial · dataset Kaggle")
+    st.info("Este era el **dataset sintético inicial** que se usó para la fase de "
+            "decisión. Se descartó a favor de la base real (sus valores son aleatorios, "
+            "sin tendencia). Se incluye para documentar el proceso.")
+
+    if kaggle is None:
+        st.error("No se encontró `Kaggle_Climate_Dataset.csv` en el repositorio. "
+                 "Súbelo junto a `app.py` para ver esta sección.")
+    else:
+        k = kaggle.copy()
+        graf = st.selectbox("Gráfico", [
+            "Distribución de variables (boxplots)",
+            "Umbrales de CO₂ según escenario 2050",
+            "Cuotas de consumo fósil según escenario 2050",
+            "Escenarios de riesgo por país",
+            "Baseline de temperatura global",
+        ])
+
+        if graf == "Distribución de variables (boxplots)":
+            vs = ["global_avg_temperature", "temperature_anomaly", "co2_concentration_ppm",
+                  "fossil_fuel_consumption", "renewable_energy_share", "sea_level_rise_mm",
+                  "sea_surface_temperature", "heatwave_days", "drought_index",
+                  "climate_risk_index"]
+            sel = st.multiselect("Variables", vs, default=vs[:6])
+            for fila in range(0, len(sel), 3):
+                cols = st.columns(3)
+                for cc, var in zip(cols, sel[fila:fila + 3]):
+                    f = px.box(k, y=var, points="outliers",
+                               color_discrete_sequence=["#2e6b9a"], title=var)
+                    f.update_layout(height=320, showlegend=False, yaxis_title="")
+                    cc.plotly_chart(f, use_container_width=True)
+
+        elif graf.startswith("Umbrales de CO₂"):
+            k["temp_red"] = np.round(k["predicted_temperature_2050"] * 2) / 2
+            kf = k[(k["temp_red"] >= 1.0) & (k["temp_red"] <= 4.0)]
+            fig = px.box(kf, x="temp_red", y="co2_concentration_ppm",
+                         facet_col="country", facet_col_wrap=5,
+                         color_discrete_sequence=["#708090"],
+                         labels={"temp_red": "Temp. proyectada 2050 (°C)",
+                                 "co2_concentration_ppm": "CO₂ (ppm)"})
+            fig.update_layout(height=650,
+                              title="Umbrales de CO₂ según escenario de temperatura 2050")
+            fig.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))
+            st.plotly_chart(fig, use_container_width=True)
+
+        elif graf.startswith("Cuotas de consumo"):
+            k["temp_red"] = np.round(k["predicted_temperature_2050"] * 2) / 2
+            kf = k[(k["temp_red"] >= 1.0) & (k["temp_red"] <= 4.0)]
+            fig = px.box(kf, x="temp_red", y="fossil_fuel_consumption",
+                         facet_col="country", facet_col_wrap=5,
+                         color_discrete_sequence=["#8a5a44"],
+                         labels={"temp_red": "Temp. proyectada 2050 (°C)",
+                                 "fossil_fuel_consumption": "Consumo fósil"})
+            fig.update_layout(height=650,
+                              title="Cuotas de consumo fósil según escenario 2050")
+            fig.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))
+            st.plotly_chart(fig, use_container_width=True)
+
+        elif graf.startswith("Escenarios de riesgo"):
+            umbral = k["predicted_temperature_2050"].median()
+            k["Riesgo"] = np.where(k["predicted_temperature_2050"] > umbral,
+                                   "Severo (> mediana)", "Moderado (< mediana)")
+            conteo = (k.groupby(["country", "Riesgo"]).size()
+                      .reset_index(name="n"))
+            fig = px.bar(conteo, x="country", y="n", color="Riesgo", barmode="stack",
+                         color_discrete_map={"Severo (> mediana)": "#b33030",
+                                             "Moderado (< mediana)": "#708090"},
+                         labels={"country": "País", "n": "N° de registros"},
+                         title="Distribución de escenarios de riesgo térmico por país")
+            fig.update_layout(xaxis_tickangle=-30)
+            st.plotly_chart(fig, use_container_width=True)
+            st.caption(f"Umbral = mediana de la temperatura proyectada 2050 "
+                       f"({umbral:.2f} °C).")
+
+        else:  # Baseline global
+            gh = k.groupby("year")["global_avg_temperature"].mean()
+            m_tr = LinearRegression().fit(gh.index.values.reshape(-1, 1), gh.values)
+            fut_b = np.arange(int(gh.index.max()) + 1, 2051)
+            naive, ma10 = gh.iloc[-1], gh.iloc[-10:].mean()
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=gh.index, y=gh.values, mode="lines",
+                                     line=dict(color="black"), name="Histórico"))
+            fig.add_trace(go.Scatter(x=fut_b, y=[naive] * len(fut_b), mode="lines",
+                                     line=dict(color="#c0392b", dash="dash"),
+                                     name=f"Naive ({naive:.2f})"))
+            fig.add_trace(go.Scatter(x=fut_b, y=[ma10] * len(fut_b), mode="lines",
+                                     line=dict(color="#2e8b57", dash="dash"),
+                                     name=f"Media móvil 10y ({ma10:.2f})"))
+            fig.add_trace(go.Scatter(x=fut_b, y=m_tr.predict(fut_b.reshape(-1, 1)),
+                                     mode="lines", line=dict(color="#2471a3", width=3),
+                                     name="Tendencia lineal"))
+            fig.update_layout(xaxis_title="Año", yaxis_title="Temperatura global (°C)",
+                              title="Baseline y tendencia (dataset Kaggle)",
+                              legend=dict(orientation="h", y=1.1))
+            st.plotly_chart(fig, use_container_width=True)
+            st.caption("Al ser datos sintéticos, la tendencia es casi plana — otra "
+                       "razón por la que se optó por la base real.")
+
+
+# ======================================================================
+# 8. CONCLUSIONES
 # ======================================================================
 elif seccion == "📝 Conclusiones":
     st.title("📝 Conclusiones")
