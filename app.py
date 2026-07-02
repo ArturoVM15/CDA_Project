@@ -99,7 +99,7 @@ st.sidebar.title("🌍 Navegación")
 seccion = st.sidebar.radio(
     "Ir a:",
     ["🏠 Inicio", "🔍 Exploración (EDA)", "🌡️ Relación global",
-     "🗺️ Relación por país", "📊 Matriz predictiva",
+     "🗺️ Relación por país", "📉 Tendencias", "📊 Matriz predictiva",
      "📈 Proyección a 2050", "🏆 Comparación de modelos",
      "🧪 Exploración inicial (Kaggle)", "📝 Conclusiones"]
 )
@@ -447,6 +447,52 @@ elif seccion == "📈 Proyección a 2050":
 
 
 # ======================================================================
+# 4b. TENDENCIAS
+# ======================================================================
+elif seccion == "📉 Tendencias":
+    st.title("📉 Tendencias temporales")
+    st.markdown("Evolución de temperatura, emisiones de CO₂ y consumo de combustibles "
+                "fósiles, con su línea de tendencia lineal.")
+
+    modo = st.radio("Escala", ["🌍 Global", "🗺️ Por país"], horizontal=True)
+
+    series = [("Temperatura (°C)", COL_TMP, "#c0392b"),
+              ("Emisiones de CO₂ (t)", COL_CO2, "#5d3a9b"),
+              ("Consumo fósil (TWh)", COL_FOS, "#2a6f7f")]
+
+    if modo == "🌍 Global":
+        gg = df.groupby("Anio").agg(**{COL_TMP: (COL_TMP, "mean"),
+                                       COL_CO2: (COL_CO2, "sum"),
+                                       COL_FOS: (COL_FOS, "sum")}).reset_index()
+        st.caption("Temperatura = promedio de los países · CO₂ y fósil = suma mundial.")
+        base_data = gg
+        titulo_extra = "(global)"
+    else:
+        pais = st.selectbox("País", sorted(df["Pais"].unique()))
+        base_data = df[df["Pais"] == pais].sort_values("Anio")
+        titulo_extra = f"({pais})"
+
+    cols = st.columns(3)
+    for cc, (nombre, col, color) in zip(cols, series):
+        d = base_data.dropna(subset=[col])
+        m = LinearRegression().fit(d[["Anio"]], d[col])
+        tend = m.predict(d[["Anio"]])
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=d["Anio"], y=d[col], mode="lines+markers",
+                                 line=dict(color=color), name="Observado",
+                                 marker=dict(size=4)))
+        fig.add_trace(go.Scatter(x=d["Anio"], y=tend, mode="lines",
+                                 line=dict(color="black", dash="dash"), name="Tendencia"))
+        signo = "↑" if m.coef_[0] > 0 else "↓"
+        fig.update_layout(title=f"{nombre} {signo}", height=380,
+                          showlegend=False, xaxis_title="", yaxis_title="")
+        cc.plotly_chart(fig, use_container_width=True)
+
+    st.caption(f"Línea negra punteada = tendencia lineal {titulo_extra}. "
+               "La flecha ↑/↓ indica el signo de la pendiente.")
+
+
+# ======================================================================
 # 5b. MATRIZ PREDICTIVA 4x4
 # ======================================================================
 elif seccion == "📊 Matriz predictiva":
@@ -581,6 +627,7 @@ elif seccion == "🧪 Exploración inicial (Kaggle)":
             "Cuotas de consumo fósil según escenario 2050",
             "Escenarios de riesgo por país",
             "Baseline de temperatura global",
+            "Comparación Kaggle vs base real (OWID)",
         ])
 
         if graf == "Distribución de variables (boxplots)":
@@ -662,6 +709,49 @@ elif seccion == "🧪 Exploración inicial (Kaggle)":
             st.plotly_chart(fig, use_container_width=True)
             st.caption("Al ser datos sintéticos, la tendencia es casi plana — otra "
                        "razón por la que se optó por la base real.")
+
+        # ------- Comparación Kaggle vs base real (OWID) -------
+        if graf.startswith("Comparación"):
+            st.markdown("Compara la **forma** de cada variable entre el dataset Kaggle "
+                        "(sintético) y la base real (OWID), por país. Como las unidades "
+                        "difieren, ambas series se **normalizan a 0–1**.")
+            k2 = kaggle.copy()
+            k2["country"] = k2["country"].replace({"UK": "United Kingdom",
+                                                   "USA": "United States"})
+            c1, c2 = st.columns(2)
+            pais = c1.selectbox("País", sorted(df["Pais"].unique()), key="cmp_pais")
+            var_map = {
+                "Temperatura": (COL_TMP, "global_avg_temperature"),
+                "CO₂": (COL_CO2, "co2_concentration_ppm"),
+                "Consumo fósil": (COL_FOS, "fossil_fuel_consumption"),
+            }
+            var = c2.selectbox("Variable", list(var_map.keys()), key="cmp_var")
+            col_real, col_kag = var_map[var]
+
+            def norm(s):
+                s = s.astype(float)
+                return (s - s.min()) / (s.max() - s.min()) if s.max() > s.min() else s * 0
+
+            dr = df[df["Pais"] == pais].sort_values("Anio")
+            dk = (k2[k2["country"] == pais].groupby("year")[col_kag]
+                  .mean().reset_index())
+
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=dr["Anio"], y=norm(dr[col_real]),
+                                     mode="lines+markers", name="Base real (OWID)",
+                                     line=dict(color="#2471a3", width=3),
+                                     marker=dict(size=4)))
+            fig.add_trace(go.Scatter(x=dk["year"], y=norm(dk[col_kag]),
+                                     mode="lines+markers", name="Kaggle (sintético)",
+                                     line=dict(color="#c0392b", dash="dot"),
+                                     marker=dict(size=4)))
+            fig.update_layout(title=f"{var} en {pais} · normalizado (0–1)",
+                              xaxis_title="Año", yaxis_title="Valor normalizado",
+                              legend=dict(orientation="h", y=1.1))
+            st.plotly_chart(fig, use_container_width=True)
+            st.info("La serie azul (real/OWID) muestra una tendencia clara; la roja "
+                    "(Kaggle) es plana y ruidosa. Esta comparación es la que justificó "
+                    "usar la base real para el análisis.")
 
 
 # ======================================================================
