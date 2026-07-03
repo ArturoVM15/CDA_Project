@@ -141,7 +141,7 @@ if seccion == "🏠 Inicio":
     st.plotly_chart(fig, use_container_width=True)
 
     st.info("Usá el menú de la izquierda para recorrer el análisis: exploración, "
-            "relación (global y por país), proyección a 2050 y clasificación KNN.")
+            "relación (global y por país), proyección a 2050 y comparación de modelos.")
 
 
 # ======================================================================
@@ -187,29 +187,6 @@ elif seccion == "🔍 Exploración (EDA)":
                       color_discrete_sequence=["#2e6b9a"])
         figb.update_layout(height=350, showlegend=False, yaxis_title="")
         ax_col.plotly_chart(figb, use_container_width=True)
-
-    colA, colB = st.columns(2)
-    with colA:
-        st.subheader("Matriz de correlación")
-        corr = d[[COL_CO2, COL_FOS, COL_TMP]].corr()
-        figc = px.imshow(corr, text_auto=".2f", color_continuous_scale="RdBu_r",
-                         zmin=-1, zmax=1, aspect="auto",
-                         x=["CO₂", "Fósil", "Temp"], y=["CO₂", "Fósil", "Temp"])
-        st.plotly_chart(figc, use_container_width=True)
-        st.caption("La correlación CO₂–temperatura sale *negativa* con la temperatura "
-                   "absoluta (los países fríos emiten mucho). Por eso el análisis usa "
-                   "la anomalía y el agregado global, donde sí es fuertemente positiva.")
-    with colB:
-        st.subheader("Completitud de datos (país × año)")
-        pres = (d.pivot_table(index="Pais", columns="Anio",
-                              values=COL_TMP, aggfunc="count")
-                .notna().astype(int))
-        figm = px.imshow(pres, color_continuous_scale=["white", "#2e6b9a"],
-                         aspect="auto", labels=dict(color="Dato"))
-        figm.update_coloraxes(showscale=False)
-        st.plotly_chart(figm, use_container_width=True)
-        st.caption("Azul = hay dato para ese país y año. Sirve para verificar que la "
-                   "base esté completa antes de modelar.")
 
 
 # ======================================================================
@@ -788,9 +765,6 @@ elif seccion == "📝 Conclusiones":
 - **Proyección a 2050**: bajo un escenario de tendencia lineal, la anomalía llegaría
   a ≈ +1.7 °C sobre la base 1980–2000. Es un escenario, no una predicción dura: el
   backtest muestra que la trayectoria de emisiones es la mayor fuente de incertidumbre.
-
-- **La clasificación KNN** alcanza ≈ 59 % de acierto (vs 33 % del azar), distinguiendo
-  bien los niveles Bajo y Alto de calentamiento.
         """
     )
     st.caption("Proyecto Integrador — Ciencia de Datos Ambientales.")
