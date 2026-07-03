@@ -21,7 +21,7 @@ from sklearn.metrics import r2_score
 # Configuración general
 # ----------------------------------------------------------------------
 st.set_page_config(page_title="Dashboard Clima · CO₂ y Temperatura",
-                   page_icon="🌍", layout="wide")
+                  layout="wide")
 
 COL_CO2 = "Emision_anual_de_CO2"          # toneladas
 COL_FOS = "Consumo_de_combustibles_fosiles"  # TWh
@@ -95,13 +95,13 @@ VARS = {
 # ----------------------------------------------------------------------
 # Barra lateral — navegación
 # ----------------------------------------------------------------------
-st.sidebar.title("🌍 Navegación")
+st.sidebar.title("Navegación")
 seccion = st.sidebar.radio(
     "Ir a:",
-    ["🏠 Inicio", "🔍 Exploración (EDA)", "🌡️ Relación global",
-     "🗺️ Relación por país", "📉 Tendencias", "📊 Matriz predictiva",
-     "📈 Proyección a 2050", "🏆 Comparación de modelos",
-     "🧪 Exploración inicial (Kaggle)", "📝 Conclusiones"]
+    ["Inicio", "Exploración (EDA)", "Relación global",
+     "Relación por país", "Tendencias",
+     "Proyección a 2050", "Comparación de modelos",
+     "Exploración inicial (Kaggle)", "Conclusiones"]
 )
 st.sidebar.markdown("---")
 st.sidebar.caption(f"Datos: {len(df)} registros · "
@@ -112,7 +112,7 @@ st.sidebar.caption(f"Datos: {len(df)} registros · "
 # ======================================================================
 # 1. INICIO
 # ======================================================================
-if seccion == "🏠 Inicio":
+if seccion == "Inicio":
     st.title("Cambio Climático y Calentamiento Global")
     st.markdown("### Relación entre emisiones de CO₂, consumo de combustibles "
                 "fósiles y la temperatura media")
@@ -147,8 +147,8 @@ if seccion == "🏠 Inicio":
 # ======================================================================
 # 2. EXPLORACIÓN (EDA)
 # ======================================================================
-elif seccion == "🔍 Exploración (EDA)":
-    st.title("🔍 Análisis exploratorio")
+elif seccion == "Exploración (EDA)":
+    st.title("Análisis exploratorio")
 
     paises = st.multiselect("Filtrar países",
                             sorted(df["Pais"].unique()),
@@ -192,8 +192,8 @@ elif seccion == "🔍 Exploración (EDA)":
 # ======================================================================
 # 3. RELACIÓN GLOBAL
 # ======================================================================
-elif seccion == "🌡️ Relación global":
-    st.title("🌡️ Relación a nivel global")
+elif seccion == "Relación global":
+    st.title("Relación a nivel global")
     st.markdown("Sumamos todas las emisiones/consumos del mundo por año y las "
                 "cruzamos con la anomalía de temperatura global. **Es donde la "
                 "relación aparece con claridad.**")
@@ -242,8 +242,8 @@ elif seccion == "🌡️ Relación global":
 # ======================================================================
 # 4. RELACIÓN POR PAÍS
 # ======================================================================
-elif seccion == "🗺️ Relación por país":
-    st.title("🗺️ Relación por país")
+elif seccion == "Relación por país":
+    st.title("Relación por país")
     st.markdown("¿La temperatura de cada país sigue a **sus propias** emisiones? "
                 "Acá aparece el hallazgo más interesante del proyecto.")
 
@@ -290,8 +290,8 @@ elif seccion == "🗺️ Relación por país":
 # ======================================================================
 # 5. PROYECCIÓN A 2050
 # ======================================================================
-elif seccion == "📈 Proyección a 2050":
-    st.title("📈 Proyección de calentamiento a 2050")
+elif seccion == "Proyección a 2050":
+    st.title("Proyección de calentamiento a 2050")
 
     modo = st.radio("Escala", ["🌍 Global", "🗺️ Por país"], horizontal=True)
 
@@ -426,8 +426,8 @@ elif seccion == "📈 Proyección a 2050":
 # ======================================================================
 # 4b. TENDENCIAS
 # ======================================================================
-elif seccion == "📉 Tendencias":
-    st.title("📉 Tendencias temporales")
+elif seccion == "Tendencias":
+    st.title("Tendencias temporales")
     st.markdown("Evolución de temperatura, emisiones de CO₂ y consumo de combustibles "
                 "fósiles, con su línea de tendencia lineal.")
 
@@ -441,7 +441,7 @@ elif seccion == "📉 Tendencias":
                           help="El SVR (kernel RBF) sigue la curva de forma más "
                                "flexible, pero no extrapola bien fuera del rango.")
 
-    if modo == "🌍 Global":
+    if modo == "Global":
         gg = df.groupby("Anio").agg(**{COL_TMP: (COL_TMP, "mean"),
                                        COL_CO2: (COL_CO2, "sum"),
                                        COL_FOS: (COL_FOS, "sum")}).reset_index()
@@ -482,66 +482,10 @@ elif seccion == "📉 Tendencias":
 
 
 # ======================================================================
-# 5b. MATRIZ PREDICTIVA 4x4
-# ======================================================================
-elif seccion == "📊 Matriz predictiva":
-    st.title("📊 Matriz de CO₂ × consumo fósil")
-
-    tipo = st.radio("Tipo de matriz",
-                    ["Predictiva (temperatura 2050)", "Descriptiva (conteo de años)"],
-                    horizontal=True)
-
-    niveles_emi = ["Muy Bajo", "Bajo", "Alto", "Muy Alta"]
-    niveles_con = ["Mínimo", "Moderado", "Alto", "Intenso"]
-
-    if tipo.startswith("Predictiva"):
-        st.markdown("Un modelo de relación predice la anomalía de temperatura para cada "
-                    "combinación de **nivel de CO₂ × nivel de consumo fósil**, proyectada a 2050.")
-        # Modelo de relación: anomalía ~ CO2 + fósil + año
-        Xg = df[[COL_CO2, COL_FOS, "Anio"]]
-        modelo = LinearRegression().fit(Xg, df["anom"])
-        qs = [0.125, 0.375, 0.625, 0.875]
-        emi_c = df[COL_CO2].quantile(qs).values
-        con_c = df[COL_FOS].quantile(qs).values
-        M = np.zeros((4, 4))
-        for i, con in enumerate(con_c):
-            for j, emi in enumerate(emi_c):
-                M[i, j] = modelo.predict(pd.DataFrame(
-                    {COL_CO2: [emi], COL_FOS: [con], "Anio": [2050]}))[0]
-        fig = px.imshow(M, x=niveles_emi, y=niveles_con, text_auto=".2f",
-                        color_continuous_scale="YlOrRd", aspect="auto",
-                        labels=dict(x="Nivel de Emisión de CO₂",
-                                    y="Intensidad de Consumo Fósil",
-                                    color="Anomalía 2050 (°C)"))
-        fig.update_layout(title="Temperatura proyectada a 2050 según escenarios")
-        st.plotly_chart(fig, use_container_width=True)
-        st.caption("Nota: como CO₂ y fósil están correlacionados al 0.99, algunas "
-                   "combinaciones (ej. CO₂ muy alto + consumo mínimo) son escenarios "
-                   "extrapolados que casi no ocurrieron en los datos.")
-    else:
-        st.markdown("Cuántos registros (país-año) caen en cada combinación de niveles. "
-                    "Muestra que ambas variables se mueven juntas (los datos se "
-                    "concentran en la diagonal).")
-        re_ = pd.qcut(df[COL_CO2], 4, labels=niveles_emi)
-        rc_ = pd.qcut(df[COL_FOS], 4, labels=niveles_con)
-        mc = (pd.crosstab(rc_, re_)
-              .reindex(index=niveles_con, columns=niveles_emi, fill_value=0))
-        fig = px.imshow(mc.values, x=niveles_emi, y=niveles_con, text_auto="d",
-                        color_continuous_scale="Blues", aspect="auto",
-                        labels=dict(x="Nivel de Emisión de CO₂",
-                                    y="Intensidad de Consumo Fósil",
-                                    color="N° de años"))
-        fig.update_layout(title="Conteo de años por combinación de niveles")
-        st.plotly_chart(fig, use_container_width=True)
-        st.caption("La concentración en la diagonal confirma la colinealidad (0.99) "
-                   "entre emisiones de CO₂ y consumo de combustibles fósiles.")
-
-
-# ======================================================================
 # 6. COMPARACIÓN DE MODELOS (Lineal vs SVR)
 # ======================================================================
-elif seccion == "🏆 Comparación de modelos":
-    st.title("🏆 Selección del mejor modelo")
+elif seccion == "Comparación de modelos":
+    st.title("Selección del mejor modelo")
     st.markdown("Comparamos **4 modelos** para predecir la temperatura por país, con "
                 "validación temporal común: entrenamiento **1980–2018**, prueba "
                 "**2019–2024**. Se agregan las predicciones de todos los países.")
@@ -599,8 +543,8 @@ elif seccion == "🏆 Comparación de modelos":
 # ======================================================================
 # 7. EXPLORACIÓN INICIAL (KAGGLE)
 # ======================================================================
-elif seccion == "🧪 Exploración inicial (Kaggle)":
-    st.title("🧪 Exploración inicial · dataset Kaggle")
+elif seccion == "Exploración inicial (Kaggle)":
+    st.title("Exploración inicial · dataset Kaggle")
     st.info("Este era el **dataset sintético inicial** que se usó para la fase de "
             "decisión. Se descartó a favor de la base real (sus valores son aleatorios, "
             "sin tendencia). Se incluye para documentar el proceso.")
@@ -746,8 +690,8 @@ elif seccion == "🧪 Exploración inicial (Kaggle)":
 # ======================================================================
 # 8. CONCLUSIONES
 # ======================================================================
-elif seccion == "📝 Conclusiones":
-    st.title("📝 Conclusiones")
+elif seccion == "Conclusiones":
+    st.title("Conclusiones")
     st.markdown(
         """
 - **Existe una relación fuerte entre emisiones y temperatura a escala global**
